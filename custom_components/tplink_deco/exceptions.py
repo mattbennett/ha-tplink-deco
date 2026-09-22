@@ -23,6 +23,15 @@ class LoginInvalidException(Exception):
         )
 
 
+class LoginTemporarilyForbiddenException(Exception):
+    """Login was rejected with 403 but may succeed again later.
+
+    Deco firmware reports invalid credentials as error_code -5002 on an HTTP 200
+    response, so an HTTP 403 on the login endpoint is not a credentials problem and
+    must not trigger a reauth flow until it keeps happening.
+    """
+
+
 class TimeoutException(Exception):
     """Timeout exception"""
 

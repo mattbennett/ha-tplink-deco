@@ -27,6 +27,7 @@ from .exceptions import EmptyDataException
 from .exceptions import ForbiddenException
 from .exceptions import LoginForbiddenException
 from .exceptions import LoginInvalidException
+from .exceptions import LoginTemporarilyForbiddenException
 from .exceptions import TimeoutException
 from .exceptions import UnexpectedApiException
 
@@ -35,6 +36,20 @@ MIN_AES_KEY = 10 ** (AES_KEY_BYTES - 1)
 MAX_AES_KEY = (10**AES_KEY_BYTES) - 1
 
 PKCS1_v1_5_HEADER_BYTES = 11
+
+# Number of consecutive 403 responses on the login endpoint before asking the user to
+# reauthenticate. A single 403 is usually the Deco refusing a new session while the
+# owner account is logged in elsewhere, which clears up on its own.
+MAX_LOGIN_FORBIDDEN_ERRORS = 3
+# Wait before re-authenticating so that a Deco that rejected the session is not
+# immediately hit with another login handshake.
+RELOGIN_RETRY_DELAY_SECONDS = 5
+
+LOGIN_FORBIDDEN_MESSAGE = (
+    "Login was rejected with 403 Forbidden before the credentials were checked."
+    " This is usually caused by the admin account being logged in on another device."
+    " See https://github.com/amosyuen/ha-tplink-deco#manager-account."
+)
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 LEGACY_ERROR_DECODING_PATTERN = re.compile(r"^<Error Decoding (.*)>$")
@@ -175,9 +190,14 @@ class TplinkDecoApi:
             self._ssl_context = context
 
     # Return list of deco devices
-    async def async_list_devices(self) -> dict:
+    async def async_list_devices(
+        self, timeout_error_retries: int | None = None
+    ) -> dict:
         async with self._operation_lock:
-            return await self._async_call_with_retry(self._async_list_devices)
+            return await self._async_call_with_retry(
+                self._async_list_devices,
+                timeout_error_retries=timeout_error_retries,
+            )
 
     async def _async_list_devices(self) -> dict:
         await self.async_login_if_needed()
@@ -234,9 +254,14 @@ class TplinkDecoApi:
         _LOGGER.debug("Rebooted decos %s", deco_macs)
 
     # Return performance data (CPU / memory)
-    async def async_get_performance(self) -> dict:
+    async def async_get_performance(
+        self, timeout_error_retries: int | None = None
+    ) -> dict:
         async with self._operation_lock:
-            return await self._async_call_with_retry(self._async_get_performance)
+            return await self._async_call_with_retry(
+                self._async_get_performance,
+                timeout_error_retries=timeout_error_retries,
+            )
 
     async def _async_get_performance(self) -> dict:
         await self.async_login_if_needed()
@@ -392,11 +417,12 @@ class TplinkDecoApi:
                 data=self._encode_payload(login_payload),
             )
         except ForbiddenException as err:
-            raise LoginForbiddenException(
-                (
-                    "Login auth error. Likely caused by logging in with admin account on another device."
-                    " See https://github.com/amosyuen/ha-tplink-deco#manager-account."
-                )
+            self._auth_errors += 1
+            if self._auth_errors >= MAX_LOGIN_FORBIDDEN_ERRORS:
+                raise LoginForbiddenException(LOGIN_FORBIDDEN_MESSAGE) from err
+            raise LoginTemporarilyForbiddenException(
+                f"{LOGIN_FORBIDDEN_MESSAGE} Retrying"
+                f" ({self._auth_errors} of {MAX_LOGIN_FORBIDDEN_ERRORS} attempts)."
             ) from err
 
         data = self._decrypt_data(context, response_json["data"])
@@ -608,10 +634,20 @@ class TplinkDecoApi:
                     # Reached max relogin retries
                     raise err
                 relogin_retried = True
+                # A 403 means the Deco rejected the session instead of failing to
+                # answer, so give it a moment before asking for a new one.
+                delay = (
+                    RELOGIN_RETRY_DELAY_SECONDS
+                    if isinstance(err, ForbiddenException)
+                    else 0
+                )
                 _LOGGER.debug(
-                    "Re-login and retry potential expired auth error: %s",
+                    "Re-login in %d seconds and retry potential expired auth error: %s",
+                    delay,
                     err,
                 )
+                if delay:
+                    await asyncio.sleep(delay)
             except TimeoutException as err:
                 if timeout_retries >= max_timeout_retries:
                     # Reached max retries

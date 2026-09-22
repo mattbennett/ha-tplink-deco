@@ -24,12 +24,26 @@ from .api import normalize_name
 from .const import DOMAIN
 from .const import SIGNAL_CLIENT_ADDED
 from .const import SIGNAL_DECO_ADDED
+from .exceptions import EmptyDataException
+from .exceptions import ForbiddenException
 from .exceptions import LoginForbiddenException
 from .exceptions import LoginInvalidException
+from .exceptions import LoginTemporarilyForbiddenException
 from .exceptions import TimeoutException
+from .exceptions import UnexpectedApiException
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 GLOBAL_FALLBACK_PROBE_INTERVAL_SECONDS = 300
+# Errors that mean the Deco did not answer this request. They must not fail a refresh
+# when they come from an optional request.
+TRANSIENT_API_ERRORS = (
+    EmptyDataException,
+    ForbiddenException,
+    LoginTemporarilyForbiddenException,
+    TimeoutException,
+    UnexpectedApiException,
+    aiohttp.ClientError,
+)
 
 
 @dataclass
@@ -214,6 +228,17 @@ class TplinkDecoUpdateCoordinator(DataUpdateCoordinator):
         self.paused = False
         self.health = CoordinatorHealth()
 
+    @property
+    def _timeout_error_retries(self) -> int | None:
+        """Return the timeout retry budget to use for the current refresh.
+
+        The first refresh runs inside async_setup_entry, which Home Assistant does not
+        time out, so the configured retries would keep the config entry in
+        setup_in_progress for another timeout_seconds each while the Deco keeps being
+        polled. Fail fast instead and let Home Assistant retry the setup.
+        """
+        return None if self.health.last_successful_update else 0
+
     async def _async_update_data(self):
         """Update data via api."""
         if self.paused:
@@ -230,16 +255,31 @@ class TplinkDecoUpdateCoordinator(DataUpdateCoordinator):
         self.health.record_success(started)
         return data
 
+    async def _async_get_performance(self):
+        """Fetch CPU/memory data, or None when the Deco did not answer.
+
+        Performance data is only used by diagnostic sensors, so a Deco that is too busy
+        to answer it, or firmware that does not support the endpoint, must not make the
+        whole integration unavailable.
+        """
+        try:
+            return await async_call_and_propagate_config_error(
+                self.api.async_get_performance,
+                timeout_error_retries=self._timeout_error_retries,
+            )
+        except TRANSIENT_API_ERRORS as err:
+            _LOGGER.debug("Skipping Deco performance data this update: %s", err)
+            return None
+
     async def _async_update_data_internal(self):
         """Fetch and process Deco data."""
 
         new_decos = await async_call_and_propagate_config_error(
-            self.api.async_list_devices
+            self.api.async_list_devices,
+            timeout_error_retries=self._timeout_error_retries,
         )
 
-        performance_data = await async_call_and_propagate_config_error(
-            self.api.async_get_performance
-        )
+        performance_data = await self._async_get_performance()
 
         old_decos = self.data.decos
         master_deco = None
@@ -267,8 +307,8 @@ class TplinkDecoUpdateCoordinator(DataUpdateCoordinator):
                 old_deco.internet_online = False
                 decos[mac] = old_deco
 
-        # Zet globale performance data op de master Deco
-        result = performance_data.get("result", {})
+        # Set global performance data on the master Deco
+        result = {} if performance_data is None else performance_data.get("result", {})
         if master_deco is not None:
             cpu_raw = result.get("cpu_usage")
             mem_raw = result.get("mem_usage")
