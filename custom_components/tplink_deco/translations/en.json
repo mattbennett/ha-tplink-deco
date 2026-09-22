@@ -32,6 +32,7 @@
     "error": {
       "invalid_auth": "Invalid authentication",
       "invalid_host": "Unable to connect to host.",
+      "login_forbidden": "Login was rejected by the Deco with 403 Forbidden. This usually means the admin account is logged in on another device. Wait a moment and try again.",
       "timeout_connect": "Timeout establishing connection",
       "unknown": "Unexpected error"
     }
@@ -62,6 +63,7 @@
     "error": {
       "invalid_auth": "Invalid authentication",
       "invalid_host": "Unable to connect to host.",
+      "login_forbidden": "Login was rejected by the Deco with 403 Forbidden. This usually means the admin account is logged in on another device. Wait a moment and try again.",
       "timeout_connect": "Timeout establishing connection",
       "unknown": "Unexpected error"
     }

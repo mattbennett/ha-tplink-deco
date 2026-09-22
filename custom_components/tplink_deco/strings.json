@@ -29,6 +29,7 @@
     "error": {
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
       "invalid_host": "[%key:common::config_flow::error::invalid_host%]",
+      "login_forbidden": "Login was rejected by the Deco with 403 Forbidden. This usually means the admin account is logged in on another device. Wait a moment and try again.",
       "timeout_connect": "[%key:common::config_flow::error::timeout_connect%]",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
@@ -62,6 +63,7 @@
     "error": {
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
       "invalid_host": "[%key:common::config_flow::error::invalid_host%]",
+      "login_forbidden": "Login was rejected by the Deco with 403 Forbidden. This usually means the admin account is logged in on another device. Wait a moment and try again.",
       "timeout_connect": "[%key:common::config_flow::error::timeout_connect%]",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     }

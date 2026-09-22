@@ -235,6 +235,8 @@ The login credentials **MUST** be the deco **owner** credentials and the usernam
 
 Also whenever the owner logs in, all other sessions for the owner will be logged out. So if you log in with the owner credentials in the mobile app, it will cause the integration to be logged out, sometimes resulting in 403 errors. Since the integration has built in retry on auth errors, the integration will re-login, but that will logout your mobile app login session.
 
+A 403 response on login means the deco rejected the session before it checked the credentials, so the integration waits and retries instead of asking you to log in again. It only asks you to re-enter the credentials after several logins in a row are rejected.
+
 Recommend that you create a separate manager account with full permissions to manage the router manually in the mobile app and use the owner credentials only for this integration. If you need to use the owner account to do some manual management, recommend disabling this integration temporarily. Steps to create a manager account:
 
 1. Log out of the deco app
@@ -255,6 +257,8 @@ Note: The router also has its own timeout so increasing this may not help.
 ### Timeout Error Retry Count
 
 How many times to retry timeout errors for one request. You can increase this if you get a lot of timeout errors from your router.
+
+Retries are not used for the first update after the integration loads. That update runs while Home Assistant is setting the integration up, and Home Assistant does not time setup out, so retries there would keep the integration in "setting up" for another timeout period each while still polling the router. Instead the integration gives up after one timed out request and Home Assistant retries the whole setup on its own schedule.
 
 ### Verify SSL Certificate
 

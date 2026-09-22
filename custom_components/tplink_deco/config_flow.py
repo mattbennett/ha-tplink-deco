@@ -34,6 +34,7 @@ from .const import DEFAULT_SCAN_INTERVAL
 from .const import DEFAULT_TIMEOUT_ERROR_RETRIES
 from .const import DEFAULT_TIMEOUT_SECONDS
 from .const import DOMAIN
+from .exceptions import LoginTemporarilyForbiddenException
 from .exceptions import TimeoutException
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
@@ -161,6 +162,9 @@ async def _async_test_credentials(hass: HomeAssistant, data: dict[str:Any]):
         return {}
     except TimeoutException:
         return {"base": "timeout_connect"}
+    except LoginTemporarilyForbiddenException as err:
+        _LOGGER.error("Login rejected by the Deco: %s", err)
+        return {"base": "login_forbidden"}
     except ConfigEntryAuthFailed as err:
         _LOGGER.error("Error authenticating credentials: %s", err)
         return {"base": "invalid_auth"}
